@@ -25,8 +25,11 @@ var (
 	output string
 	ffmpeg string
 
-	once sync.Once
-	wg   sync.WaitGroup
+	mkdirOnce sync.Once
+	titleOnce sync.Once
+	waitgroup sync.WaitGroup
+
+	title string
 )
 
 func init() {
@@ -46,23 +49,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
-	wg.Add(len(paths))
+	waitgroup.Add(len(paths))
 	for _, path := range paths {
 		go func(path string) {
-			defer wg.Done()
+			defer waitgroup.Done()
 			entry, err := getEntry(path)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
+			titleOnce.Do(func() {
+				title = entry.Title
+			})
 			if err := execFFmpeg(path, entry); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
 		}(path)
 	}
-	wg.Wait()
-	fmt.Fprintln(os.Stdout, "all success")
+	waitgroup.Wait()
+	fmt.Fprintln(os.Stdout, "done")
 }
 
 func getEntry(path string) (*entry, error) {
@@ -93,12 +99,15 @@ func isExist(name string) bool {
 func execFFmpeg(path string, entry *entry) error {
 	audio := filepath.Join(path, entry.TypeTag, "audio.m4s")
 	video := filepath.Join(path, entry.TypeTag, "video.m4s")
-	outputDir := filepath.Join(output, entry.Title)
-	once.Do(func() {
-		if !isExist(outputDir) {
+	if title == "" {
+		title = entry.Title
+	}
+	outputDir := filepath.Join(output, title)
+	if !isExist(outputDir) {
+		mkdirOnce.Do(func() {
 			_ = os.Mkdir(outputDir, os.ModeDir)
-		}
-	})
+		})
+	}
 	cmd := exec.Command(ffmpeg,
 		"-y", // overwrite yes
 		"-i", audio,
